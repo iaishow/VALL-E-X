@@ -62,10 +62,14 @@ torch._C._set_graph_executor_optimize(False)
 text_tokenizer = PhonemeBpeTokenizer(tokenizer_path="./utils/g2p/bpe_69.json")
 text_collater = get_text_token_collater()
 
-device = torch.device("cpu")
-if torch.cuda.is_available():
-    device = torch.device("cuda", 0)
+# device = torch.device("cpu")
+# if torch.cuda.is_available():
+#     device = torch.device("cuda", 0)
+device = torch.device("cuda", 0)
+if torch.backends.mps.is_available():
+    device = torch.device("mps")
 
+print(device)
 # VALL-E-X model
 if not os.path.exists("./checkpoints/"): os.mkdir("./checkpoints/")
 if not os.path.exists(os.path.join("./checkpoints/", "vallex-checkpoint.pt")):
@@ -93,7 +97,8 @@ model = VALLE(
         prepend_bos=True,
         num_quantizers=NUM_QUANTIZERS,
     )
-checkpoint = torch.load("./checkpoints/vallex-checkpoint.pt", map_location='cpu')
+#checkpoint = torch.load("./checkpoints/vallex-checkpoint.pt", map_location='cpu')
+checkpoint = torch.load("./checkpoints/vallex-checkpoint.pt")
 missing_keys, unexpected_keys = model.load_state_dict(
     checkpoint["model"], strict=True
 )
@@ -109,7 +114,7 @@ vocos = Vocos.from_pretrained('charactr/vocos-encodec-24khz').to(device)
 # ASR
 if not os.path.exists("./whisper/"): os.mkdir("./whisper/")
 try:
-    whisper_model = whisper.load_model("medium",download_root=os.path.join(os.getcwd(), "whisper")).cpu()
+    whisper_model = whisper.load_model("medium",download_root=os.path.join(os.getcwd(), "whisper")).cuda()
 except Exception as e:
     logging.info(e)
     raise Exception(
@@ -147,7 +152,7 @@ def transcribe_one(model, audio_path):
     print(f"Detected language: {max(probs, key=probs.get)}")
     lang = max(probs, key=probs.get)
     # decode the audio
-    options = whisper.DecodingOptions(temperature=1.0, best_of=5, fp16=False if device == torch.device("cpu") else True, sample_len=150)
+    options = whisper.DecodingOptions(temperature=1.0, best_of=5, fp16=True, sample_len=150)
     result = whisper.decode(model, mel, options)
 
     # print the recognized text
@@ -181,7 +186,7 @@ def make_npz_prompt(name, uploaded_audio, recorded_audio, transcript_content):
         text_pr = f"{lang_token}{str(transcript_content)}{lang_token}"
     # tokenize audio
     encoded_frames = tokenize_audio(audio_tokenizer, (wav_pr, sr))
-    audio_tokens = encoded_frames[0][0].transpose(2, 1).cpu().numpy()
+    audio_tokens = encoded_frames[0][0].transpose(2, 1).cuda().numpy()
 
     # tokenize text
     phonemes, _ = text_tokenizer.tokenize(text=f"{text_pr}".strip())
@@ -221,7 +226,7 @@ def make_prompt(name, wav, sr, save=True):
         os.remove(f"./prompts/{name}.wav")
         os.remove(f"./prompts/{name}.txt")
 
-    whisper_model.cpu()
+    whisper_model.cuda()
     torch.cuda.empty_cache()
     return text, lang
 
@@ -302,7 +307,7 @@ def infer_from_audio(text, language, accent, audio_prompt, record_audio_prompt, 
     torch.cuda.empty_cache()
 
     message = f"text prompt: {text_pr}\nsythesized text: {text}"
-    return message, (24000, samples.squeeze(0).cpu().numpy())
+    return message, (24000, samples.squeeze(0).cuda().numpy())
 
 @torch.no_grad()
 def infer_from_prompt(text, language, accent, preset_prompt, prompt_file):
@@ -452,7 +457,7 @@ def infer_long_text(text, preset_prompt, prompt=None, language='auto', accent='n
 
         model.to('cpu')
         message = f"Cut into {len(sentences)} sentences"
-        return message, (24000, samples.squeeze(0).cpu().numpy())
+        return message, (24000, samples.squeeze(0).cuda().numpy())
     elif mode == "sliding-window":
         complete_tokens = torch.zeros([1, NUM_QUANTIZERS, 0]).type(torch.LongTensor).to(device)
         original_audio_prompts = audio_prompts
@@ -502,7 +507,7 @@ def infer_long_text(text, preset_prompt, prompt=None, language='auto', accent='n
 
         model.to('cpu')
         message = f"Cut into {len(sentences)} sentences"
-        return message, (24000, samples.squeeze(0).cpu().numpy())
+        return message, (24000, samples.squeeze(0).cuda().numpy())
     else:
         raise ValueError(f"No such mode {mode}")
 
@@ -618,7 +623,7 @@ def main():
                               outputs=[text_output_4, audio_output_4])
 
     webbrowser.open("http://0.0.0.0:7860")
-    app.launch(server_name="0.0.0.0")
+    app.launch(server_name="0.0.0.0",server_port=7860)
 
 if __name__ == "__main__":
     formatter = (
