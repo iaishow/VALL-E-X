@@ -17,7 +17,7 @@ eng_to_ipa
 openai-whisper
 phonemizer==3.2.0
 matplotlib
-gradio
+gradio==3.50.2
 nltk
 sudachipy
 sudachidict_core
